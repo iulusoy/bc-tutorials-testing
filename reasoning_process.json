@@ -1,0 +1,56 @@
+{
+  "name": "reasoning_process",
+  "directed": true,
+  "nodes": [
+    {
+      "id": "obs_1",
+      "type": "observation",
+      "properties": {
+        "description": "TP53 is frequently mutated in cancer",
+        "source": "literature"
+      }
+    },
+    {
+      "id": "inf_1",
+      "type": "inference",
+      "properties": {
+        "description": "TP53 mutations likely contribute to cancer development",
+        "confidence": 0.9
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "obs_to_inf",
+      "type": "supports",
+      "source": "obs_1",
+      "target": "inf_1",
+      "properties": {
+        "strength": 0.8
+      }
+    }
+  ],
+  "hyperedges": [],
+  "statistics": {
+    "basic": {
+      "nodes": 2,
+      "edges": 1,
+      "hyperedges": 0,
+      "node_types": 2,
+      "edge_types": 1,
+      "hyperedge_types": 0
+    },
+    "node_types": {
+      "observation": 1,
+      "inference": 1
+    },
+    "edge_types": {
+      "supports": 1
+    },
+    "hyperedge_types": {},
+    "connectivity": {
+      "isolated_nodes": 0,
+      "connected_nodes": 2
+    }
+  }
+}

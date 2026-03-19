@@ -1,0 +1,215 @@
+WORKFLOW_SCHEMA = {
+    "protein": {
+        "represented_as": "node",
+        "properties": {
+            "name": "str",
+            "function": "str",
+        },
+    },
+    "disease": {
+        "represented_as": "node",
+        "properties": {
+            "name": "str",
+        },
+    },
+    "interaction": {
+        "represented_as": "edge",
+        "source": "protein",
+        "target": "protein",
+        "properties": {
+            "confidence": "float",
+        },
+    },
+    "causes": {
+        "represented_as": "edge",
+        "source": "protein",
+        "target": "disease",
+        "properties": {
+            "evidence": "str",
+        },
+    },
+}
+
+WORKFLOW_SCHEMA_YAML = """
+protein:
+  represented_as: node
+  properties:
+    name: str
+    function: str
+disease:
+  represented_as: node
+  properties:
+    name: str
+interaction:
+  represented_as: edge
+  source: protein
+  target: protein
+  properties:
+    confidence: float
+causes:
+  represented_as: edge
+  source: protein
+  target: disease
+  properties:
+    evidence: str
+"""
+
+WORKFLOW_VALID_GRAPH_JSON = {
+    "name": "workflow_valid",
+    "directed": True,
+    "nodes": [
+        {"id": "P1", "type": "protein", "properties": {"name": "TP53", "function": "guardian"}},
+        {"id": "P2", "type": "protein", "properties": {"name": "BRAF", "function": "kinase"}},
+        {"id": "D1", "type": "disease", "properties": {"name": "Cancer"}},
+    ],
+    "edges": [
+        {"id": "E1", "type": "interaction", "source": "P1", "target": "P2", "properties": {"confidence": 0.8}},
+        {"id": "E2", "type": "causes", "source": "P2", "target": "D1", "properties": {"evidence": "paper"}},
+    ],
+    "hyperedges": [
+        {"id": "H1", "type": "complex", "nodes": ["P1", "P2"], "properties": {"name": "dimer"}},
+    ],
+}
+
+WORKFLOW_INVALID_ENDPOINT_TYPES = {
+    "name": "workflow_invalid_endpoint_types",
+    "directed": True,
+    "nodes": [
+        {"id": "P1", "type": "protein", "properties": {"name": "TP53", "function": "guardian"}},
+        {"id": "D1", "type": "disease", "properties": {"name": "Cancer"}},
+    ],
+    "edges": [
+        {"id": "BAD1", "type": "interaction", "source": "P1", "target": "D1", "properties": {"confidence": 0.7}},
+    ],
+    "hyperedges": [],
+}
+
+WORKFLOW_INVALID_REFERENCES_JSON = {
+    "name": "workflow_invalid_refs",
+    "directed": True,
+    "nodes": [
+        {"id": "P1", "type": "protein", "properties": {"name": "TP53", "function": "guardian"}},
+    ],
+    "edges": [
+        {"id": "BAD_REF", "type": "interaction", "source": "P1", "target": "P2", "properties": {"confidence": 0.8}},
+    ],
+    "hyperedges": [
+        {"id": "BAD_H", "type": "complex", "nodes": ["P1", "P2"], "properties": {}},
+    ],
+}
+WORKFLOW_COMPONENT_HYPEREDGE_CASE = {
+    "name": "component_hyperedge_case",
+    "directed": True,
+    "nodes": [
+        {"id": "C1", "type": "protein", "properties": {}},
+        {"id": "C2", "type": "protein", "properties": {}},
+        {"id": "C3", "type": "protein", "properties": {}},
+        {"id": "ISO", "type": "protein", "properties": {}},
+    ],
+    "edges": [],
+    "hyperedges": [
+        {"id": "HC", "type": "complex", "nodes": ["C1", "C2", "C3"], "properties": {"kind": "complex"}},
+    ],
+}
+WORKFLOW_MULTIEDGE_EXPORT_CASE = {
+    "name": "workflow_multiedge",
+    "directed": True,
+    "nodes": [
+        {"id": "P1", "type": "protein", "properties": {}},
+        {"id": "P2", "type": "protein", "properties": {}},
+    ],
+    "edges": [
+        {"id": "E1", "type": "interaction", "source": "P1", "target": "P2", "properties": {"confidence": 0.2}},
+        {"id": "E2", "type": "interaction", "source": "P1", "target": "P2", "properties": {"confidence": 0.9}},
+    ],
+    "hyperedges": [],
+}
+import json
+import copy
+import pytest
+
+@pytest.fixture
+def graph_base_data():
+    return copy.deepcopy(GRAPH_BASE)
+
+@pytest.fixture
+def workflow_schema():
+    return copy.deepcopy(WORKFLOW_SCHEMA)
+
+@pytest.fixture
+def workflow_valid_json():
+    return json.dumps(WORKFLOW_VALID_GRAPH_JSON)
+
+@pytest.fixture
+def workflow_invalid_refs_json():
+    return json.dumps(WORKFLOW_INVALID_REFERENCES_JSON)
+
+def test_clear_resets_deduplication_state():
+    workflow = create_workflow("w", deduplication=True, validation_mode="strict")
+    workflow.add_node("P1", "protein")
+    workflow.clear()
+    assert workflow.add_node("P1", "protein") is True
+
+def test_from_json_rebuilds_deduplication_state(workflow_valid_json):
+    workflow = create_workflow("w", deduplication=True, validation_mode="strict")
+    workflow.from_json(workflow_valid_json)
+    with pytest.raises(ValueError):
+        workflow.add_node("P1", "protein")
+
+def test_copy_preserves_policy_flags():
+    workflow = create_workflow("w", deduplication=True, validation_mode="strict", schema=WORKFLOW_SCHEMA)
+    copied = workflow.copy()
+    assert copied.deduplication is True
+    assert copied.validation_mode == "strict"
+    assert copied.schema == WORKFLOW_SCHEMA
+
+def test_strict_mode_validates_edge_endpoint_types():
+    workflow = create_workflow("w", validation_mode="strict", schema=WORKFLOW_SCHEMA)
+    workflow.add_node("P1", "protein", name="TP53", function="guardian")
+    workflow.add_node("D1", "disease", name="Cancer")
+    with pytest.raises(ValueError):
+        workflow.add_edge("BAD1", "interaction", "P1", "D1", confidence=0.8)
+
+def test_from_json_rejects_invalid_graph_payload(workflow_invalid_refs_json):
+    workflow = create_workflow("w", validation_mode="strict", schema=WORKFLOW_SCHEMA)
+    with pytest.raises(ValueError):
+        workflow.from_json(workflow_invalid_refs_json)
+
+def test_find_connected_components_preserves_hyperedges():
+    workflow = create_workflow("w")
+    workflow.from_json(json.dumps(WORKFLOW_COMPONENT_HYPEREDGE_CASE))
+    result = workflow.find_connected_components("C1", max_depth=2)
+    assert {node["id"] for node in result["nodes"]} == {"C1", "C2", "C3"}
+    assert len(result["hyperedges"]) == 1
+
+def test_find_connected_components_missing_node_has_stable_shape():
+    workflow = create_workflow("w")
+    result = workflow.find_connected_components("missing")
+    assert result == {
+        "nodes": [],
+        "edges": [],
+        "hyperedges": [],
+        "statistics": {
+            "basic": {
+                "nodes": 0,
+                "edges": 0,
+                "hyperedges": 0,
+                "node_types": 0,
+                "edge_types": 0,
+                "hyperedge_types": 0,
+            },
+            "node_types": {},
+            "edge_types": {},
+            "hyperedge_types": {},
+            "connectivity": {
+                "isolated_nodes": 0,
+                "connected_nodes": 0,
+            },
+        },
+    }
+
+def test_to_networkx_preserves_parallel_edges_or_fails_explicitly():
+    workflow = create_workflow("w")
+    workflow.from_json(json.dumps(WORKFLOW_MULTIEDGE_EXPORT_CASE))
+    nx_graph = workflow.to_networkx()
+    assert nx_graph.number_of_edges() == 2

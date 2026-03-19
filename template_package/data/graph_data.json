@@ -1,0 +1,131 @@
+# What These Graph Fixtures Cover
+# 
+# GRAPH_UNDIRECTED_CASE: verifies that directed=False changes traversal, neighbor lookup, edge lookup, and pathfinding.
+# GRAPH_HYPEREDGE_ONLY: verifies that hyperedge-connected nodes are not treated as isolated and that subgraph/component logic preserves hyperedges.
+# GRAPH_INVALID_REFERENCES: should fail under improved loaders and currently exposes invariant bypass in deserialization.
+# GRAPH_MULTIEDGE_CASE: verifies that multiedge semantics are preserved through graph logic and workflow exports.
+# MUTABLE_PROPERTIES: verifies aliasing bugs when the same mutable dict is inserted and then mutated externally.
+
+GRAPH_BASE = {
+    "name": "base_graph",
+    "directed": True,
+    "nodes": [
+        {"id": "A", "type": "protein", "properties": {"name": "TP53"}},
+        {"id": "B", "type": "protein", "properties": {"name": "BRAF"}},
+        {"id": "C", "type": "disease", "properties": {"name": "Cancer"}},
+        {"id": "D", "type": "pathway", "properties": {"name": "MAPK"}},
+    ],
+    "edges": [
+        {"id": "A_B", "type": "interaction", "source": "A", "target": "B", "properties": {"confidence": 0.9}},
+        {"id": "B_C", "type": "causes", "source": "B", "target": "C", "properties": {"evidence": "literature"}},
+        {"id": "A_C", "type": "association", "source": "A", "target": "C", "properties": {}},
+    ],
+    "hyperedges": [
+        {"id": "HX1", "type": "complex", "nodes": ["A", "B", "D"], "properties": {"label": "signalosome"}},
+    ],
+}
+
+GRAPH_UNDIRECTED_CASE = {
+    "name": "undirected_case",
+    "directed": False,
+    "nodes": [
+        {"id": "N1", "type": "protein", "properties": {}},
+        {"id": "N2", "type": "protein", "properties": {}},
+        {"id": "N3", "type": "protein", "properties": {}},
+    ],
+    "edges": [
+        {"id": "E1", "type": "interaction", "source": "N1", "target": "N2", "properties": {}},
+        {"id": "E2", "type": "interaction", "source": "N2", "target": "N3", "properties": {}},
+    ],
+    "hyperedges": [],
+}
+
+GRAPH_HYPEREDGE_ONLY = {
+    "name": "hyper_only",
+    "directed": True,
+    "nodes": [
+        {"id": "P1", "type": "protein", "properties": {}},
+        {"id": "P2", "type": "protein", "properties": {}},
+        {"id": "P3", "type": "protein", "properties": {}},
+    ],
+    "edges": [],
+    "hyperedges": [
+        {"id": "H1", "type": "complex", "nodes": ["P1", "P2", "P3"], "properties": {"function": "assembly"}},
+    ],
+}
+
+GRAPH_INVALID_REFERENCES = {
+    "name": "invalid_refs",
+    "directed": True,
+    "nodes": [
+        {"id": "X1", "type": "protein", "properties": {}},
+    ],
+    "edges": [
+        {"id": "XE1", "type": "interaction", "source": "X1", "target": "MISSING", "properties": {}},
+    ],
+    "hyperedges": [
+        {"id": "XH1", "type": "complex", "nodes": ["X1", "MISSING"], "properties": {}},
+    ],
+}
+
+GRAPH_MULTIEDGE_CASE = {
+    "name": "multiedge_case",
+    "directed": True,
+    "nodes": [
+        {"id": "M1", "type": "protein", "properties": {}},
+        {"id": "M2", "type": "protein", "properties": {}},
+    ],
+    "edges": [
+        {"id": "ME1", "type": "interaction", "source": "M1", "target": "M2", "properties": {"score": 1}},
+        {"id": "ME2", "type": "interaction", "source": "M1", "target": "M2", "properties": {"score": 2}},
+    ],
+    "hyperedges": [],
+}
+
+MUTABLE_PROPERTIES = {
+    "name": "TP53",
+    "tags": ["tumor_suppressor"],
+    "meta": {"source": "manual"},
+}
+
+def test_undirected_neighbors_are_symmetric():
+    graph = Graph.from_dict(GRAPH_UNDIRECTED_CASE)
+    assert graph.get_neighbors("N2") == {"N1", "N3"}
+    assert graph.get_neighbors("N1") == {"N2"}
+    assert graph.get_neighbors("N2", direction="in") == {"N1", "N3"}
+
+def test_undirected_paths_work_in_reverse_direction():
+    graph = Graph.from_dict(GRAPH_UNDIRECTED_CASE)
+    paths = graph.find_paths("N3", "N1", max_length=2)
+    assert len(paths) == 1
+
+def test_remove_node_cleans_incident_hyperedges():
+    graph = Graph.from_dict(GRAPH_BASE)
+    assert graph.has_hyperedge("HX1")
+    graph.remove_node("A")
+    assert not graph.has_node("A")
+    assert not graph.has_hyperedge("HX1")
+
+def test_hyperedge_only_nodes_are_not_isolated():
+    graph = Graph.from_dict(GRAPH_HYPEREDGE_ONLY)
+    stats = graph.get_statistics()
+    assert stats["connectivity"]["isolated_nodes"] == 0
+
+def test_subgraph_preserves_fully_contained_hyperedges():
+    graph = Graph.from_dict(GRAPH_BASE)
+    subgraph = graph.get_subgraph({"A", "B", "D"})
+    assert subgraph.has_hyperedge("HX1")
+
+def test_from_dict_rejects_invalid_references():
+    with pytest.raises(ValueError):
+        Graph.from_dict(GRAPH_INVALID_REFERENCES)
+    
+def test_graph_defensively_copies_properties():
+    props = copy.deepcopy(MUTABLE_PROPERTIES)
+    graph = Graph("g")
+    graph.add_node("A", "protein", props)
+    props["name"] = "MUTATED"
+    props["tags"].append("changed")
+    assert graph.get_node("A").properties["name"] == "TP53"
+    assert graph.get_node("A").properties["tags"] == ["tumor_suppressor"]
+
